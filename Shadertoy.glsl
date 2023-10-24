@@ -82,6 +82,44 @@ mat4 Rotation(vec3 rot, float theta){
     return rotation_matrix;
 }
 
+Cylinder RotationCylinder(Cylinder cyl, vec3 rot, float angle)
+{
+    // Translation du cylindre pour qu'il soit centré autour de l'origine
+    vec3 center = (cyl.b - cyl.a) / 2.0 + cyl.a;
+    vec3 newa = cyl.a - center;
+    vec3 newb = cyl.b - center;
+
+    // Rotation dans l'espace local
+    mat4 Rot = Rotation(rot, angle);
+    vec3 newDirA = (Rot * vec4(newa, 0.0)).xyz;
+    vec3 newDirB = (Rot * vec4(newb, 0.0)).xyz;
+
+    // Retranslation pour ramener le cylindre à sa position d'origine
+    newa = newDirA + center;
+    newb = newDirB + center;
+
+    return Cylinder(newa, newb, newDirA, cyl.r, cyl.i);
+}
+
+Capsule RotationCapsule(Capsule cap, vec3 rot, float angle)
+{
+    // Translation du cylindre pour qu'il soit centré autour de l'origine
+    vec3 center = (cap.b - cap.a) / 2.0 + cap.a;
+    vec3 newa = cap.a - center;
+    vec3 newb = cap.b - center;
+
+    // Rotation dans l'espace local
+    mat4 Rot = Rotation(rot, angle);
+    vec3 newDirA = (Rot * vec4(newa, 0.0)).xyz;
+    vec3 newDirB = (Rot * vec4(newb, 0.0)).xyz;
+
+    // Retranslation pour ramener le cylindre à sa position d'origine
+    newa = newDirA + center;
+    newb = newDirB + center;
+    return Capsule(newa, newb, newDirA, cap.r, cap.i);
+}
+
+
 float Checkers(in vec2 p)
 {
     // Filter kernel
@@ -145,45 +183,12 @@ Material Texture(vec3 p,int i)
     return Material(vec3(0));
 }
 
-
-
 // Sphere intersection
 // ray : The ray
 //   x : Returned intersection information
-bool IntersectSphere(Ray ray,Sphere sph, vec3 rot, float angle, out Hit x)
+bool IntersectSphere(Ray ray,Sphere sph, out Hit x)
 {
-    mat4 Rot = Rotation(normalize(rot), angle);
-    mat4 inv = inverse(Rot);
-    vec3 rotCenter = (inv * vec4(sph.c, 1.0)).xyz;
-    
-    vec3 rdd = (inv*vec4(ray.d,0.0)).xyz;
-    vec3 roo = (inv*vec4(ray.o,1.0)).xyz;
-    
-    vec3 oc=roo-sph.c;
-    float b=dot(oc,rdd);
-    float c=dot(oc,oc)-sph.r*sph.r;
-    float d=b*b-c;
-    if(d>0.)
-    {
-        float t=-b-sqrt(d);
-        if(t>0.)
-        {
-            vec3 p=PointRot(roo, rdd, t);
-            x=Hit(t,normalize ((Rot*vec4((p-sph.c),0.0)).xyz),sph.i);
-            
-            return true;
-        }
-    }
-    return false;
-    
-}
-
-bool IntersectSphere2(Ray ray,Sphere sph, vec3 tr, out Hit x)
-{
-    mat4 T = Translate(tr);
-    vec3 trCenter = (T * vec4(sph.c, 1.0)).xyz;
-        
-    vec3 oc=ray.o-trCenter;
+    vec3 oc=ray.o-sph.c;
     float b=dot(oc,ray.d);
     float c=dot(oc,oc)-sph.r*sph.r;
     float d=b*b-c;
@@ -193,13 +198,12 @@ bool IntersectSphere2(Ray ray,Sphere sph, vec3 tr, out Hit x)
         if(t>0.)
         {
             vec3 p=Point(ray,t);
-            x=Hit(t,normalize(p-trCenter),sph.i);
+            x=Hit(t,normalize(p-sph.c),sph.i);
             
             return true;
         }
     }
     return false;
-    
 }
 
 // Plane intersection
@@ -218,17 +222,10 @@ bool IntersectPlane(Ray ray,Plane pl,out Hit x)
 }
 
 
-bool IntersectEllipse(Ray ray, Ellipse e, vec3 rot, float angle, out Hit x) {
-    mat4 Rot = Rotation(normalize(rot), angle);
-    mat4 inv = inverse(Rot);
-    vec3 rotCenter = (inv * vec4(e.c, 1.0)).xyz;
-
-    vec3 rdd = (inv*vec4(ray.d,0.0)).xyz;
-    vec3 roo = (inv*vec4(ray.o,1.0)).xyz;
-
-    vec3 oc=roo-rotCenter;
-    float a = dot(rdd/e.e, rdd/e.e);
-    float b = 2.*dot(oc/e.e, rdd/e.e);
+bool IntersectEllipse(Ray ray, Ellipse e,  out Hit x) {
+    vec3 oc=ray.o-e.c;
+    float a = dot(ray.d/e.e, ray.d/e.e);
+    float b = 2.*dot(oc/e.e, ray.d/e.e);
     float c = dot(oc/e.e, oc/e.e) - 1.;
     float d = b*b-4.*a*c;
     
@@ -237,32 +234,21 @@ bool IntersectEllipse(Ray ray, Ellipse e, vec3 rot, float angle, out Hit x) {
         float t=min((-b-sqrt(d))/(2.*a), (-b+sqrt(d))/(2.*a));
         if(t>0.)
         {
-            vec3 p=PointRot(roo,rdd,t);            
-            x=Hit(t,normalize((Rot*vec4((p-rotCenter),0.0)).xyz), e.i);
+            vec3 p=Point(ray,t);
+            x=Hit(t,normalize((p-e.c)/dot(e.e, e.e)), e.i);
             return true;
         }
     }
-    return false;   
+    return false;    
 }
 
-bool IntersectTruncatedCylinder(Ray ray, Cylinder cyl, vec3 rot, float angle, out Hit x)
+bool IntersectTruncatedCylinder(Ray ray, Cylinder cyl, out Hit x)
 {
-    mat4 Rot = Rotation(normalize(rot), angle);
-    mat4 inv = inverse(Rot);
-    vec3 ba = (cyl.b-cyl.a)/2.; //ajouter
-    vec3 rotCenter = (inv * vec4(ba+cyl.a, 1.0)).xyz;
-    
-    vec3 rdd = (inv*vec4(ray.d,0.0)).xyz;
-    vec3 roo = (inv*vec4(ray.o,1.0)).xyz;
-    
-    vec3 newa = rotCenter-ba;
-    vec3 newb = rotCenter+ba;
-    float d2 = dot(rdd, rdd);
+    float d2 = dot(ray.d, ray.d);
     vec3 u = normalize(cyl.dir);
-    //vec3 oa = ray.o - cyl.a;
-    vec3 oa = roo-newa;
-    float a = d2 - dot(dot(rdd, u), dot(rdd, u));
-    float b = 2.0 * (dot(oa, rdd) - dot(oa, u) * dot(rdd, u));
+    vec3 oa = ray.o - cyl.a;
+    float a = d2 - dot(dot(ray.d, u), dot(ray.d, u));
+    float b = 2.0 * (dot(oa, ray.d) - dot(oa, u) * dot(ray.d, u));
     float c = dot(oa, oa) - (dot(dot(oa, u), dot(oa, u))) - (dot(cyl.r, cyl.r));
 
     float delta = b * b - 4.0 * a * c;
@@ -273,58 +259,47 @@ bool IntersectTruncatedCylinder(Ray ray, Cylinder cyl, vec3 rot, float angle, ou
         float t = min(t1, t2);
 
         // Vérifier si l'intersection est à l'intérieur du cylindre tronqué
-        vec3 p = PointRot(roo, rdd, t);
-        float height = dot(p - newb, u);
-        if (t > 0.0 && height >= 0.0 && height <= length(newb-newa)) {
-            x = Hit(t, normalize((Rot*vec4((p - newa - dot(p - newa, u) * u),0.0)).xyz), cyl.i);
+        vec3 p = Point(ray, t);
+        float height = dot(p - cyl.b, u);
+        if (t > 0.0 && height >= 0.0 && height <= length(cyl.b-cyl.a)) {
+            x = Hit(t, normalize(p - cyl.a - dot(p - cyl.a, u) * u), cyl.i);
             return true;
         }
     }
 
     // Intersections avec les disques tronqués aux extrémités du cylindre tronqué
-    float tTop = (dot(newb - roo, u)) / dot(rdd, u);
-    float tBottom = (dot(newa - roo, u)) / dot(rdd, u);
+    float tTop = (dot(cyl.b - ray.o, u)) / dot(ray.d, u);
+    float tBottom = (dot(cyl.a - ray.o, u)) / dot(ray.d, u);
 
-    vec3 pTop = PointRot(roo, rdd, tTop);
-    vec3 pBottom = PointRot(roo, rdd, tBottom);
+    vec3 pTop = Point(ray, tTop);
+    vec3 pBottom = Point(ray, tBottom);
 
-    if (tTop > 0.0 && length(pTop - newb) <= length(cyl.r)) {
-        x = Hit(tTop, normalize((Rot*vec4((newb-newa),0.0)).xyz), cyl.i);
-        
-        if (tBottom > 0.0 && length(pBottom - newa) <= length(cyl.r) && tBottom < tTop) {
-            x = Hit(tBottom, normalize((Rot*vec4((newa-newb),0.0)).xyz), cyl.i); 
+    bool hitTop = false;
+    bool hitBottom = false;
+
+    if (tTop > 0.0 && length(pTop - cyl.b) <= length(cyl.r)) {
+        x = Hit(tTop, normalize(cyl.b - cyl.a), cyl.i);
+        hitTop = true;
+        if (tBottom > 0.0 && length(pBottom - cyl.a) <= length(cyl.r) && tTop > tBottom) {
+            x = Hit(tBottom, normalize(cyl.a - cyl.b), cyl.i);
         }
         return true;
     }
-
-    if (tBottom > 0.0 && length(pBottom - newa) <= length(cyl.r)) {
-        x = Hit(tBottom, normalize((Rot*vec4((newa-newb),0.0)).xyz), cyl.i);
+    if (tBottom > 0.0 && length(pBottom - cyl.a) <= length(cyl.r)) {
+        x = Hit(tBottom, normalize(cyl.a - cyl.b), cyl.i);
         return true;
     }
-
     return false;
 }
 
-bool IntersectCapsule(Ray ray, Capsule cap, vec3 rot, float angle, out Hit x)
+bool IntersectCapsule(Ray ray, Capsule cap, out Hit x)
 {
-    mat4 Rot = Rotation(normalize(rot), angle);
-    mat4 inv = inverse(Rot);
-    vec3 ba = (cap.b-cap.a)/2.; 
-    vec3 rotCenter = (inv * vec4(ba+cap.a, 1.0)).xyz;
-    
-    vec3 rdd = (inv*vec4(ray.d,0.0)).xyz;
-    vec3 roo = (inv*vec4(ray.o,1.0)).xyz;
-    
-    vec3 newa = rotCenter-ba;
-    vec3 newb = rotCenter+ba;
-    // Calculer l'intersection avec le cylindre central
-    float d2 = dot(rdd, rdd);
+    float d2 = dot(ray.d, ray.d);
     vec3 u = normalize(cap.dir);
-    vec3 oc = roo - newa;
-    float a = d2 - dot(dot(rdd, u), dot(rdd, u));
-    float b = 2.0 * (dot(oc, rdd) - dot(oc, u) * dot(rdd, u));
-    float c = dot(oc, oc) - (dot(dot(oc, u), dot(oc, u))) - (cap.r * cap.r);
-
+    vec3 oa = ray.o - cap.a;
+    float a = d2 - dot(dot(ray.d, u), dot(ray.d, u));
+    float b = 2.0 * (dot(oa, ray.d) - dot(oa, u) * dot(ray.d, u));
+    float c = dot(oa, oa) - (dot(dot(oa, u), dot(oa, u))) - (dot(cap.r, cap.r));
     float delta = b * b - 4.0 * a * c;
     if (delta > 0.0) {
         float t1 = (-b - sqrt(delta)) / (2.0 * a);
@@ -332,19 +307,19 @@ bool IntersectCapsule(Ray ray, Capsule cap, vec3 rot, float angle, out Hit x)
 
         float t = min(t1, t2);
 
-        // Vérifier si l'intersection est à l'intérieur du cylindre
-        vec3 p = PointRot(roo, rdd, t);
-        float height = dot(p - newa, u);
-        if (t > 0.0 && height >= 0.0 && height <= length(newb-newa)) {
-            x = Hit(t, normalize((Rot*vec4((p - newa - dot(p - newa, u) * u),0.0)).xyz), cap.i);
+        // Vérifier si l'intersection est à l'intérieur du cylindre tronqué
+        vec3 p = Point(ray, t);
+        float height = dot(p - cap.b, u);
+        if (t > 0.0 && height >= 0.0 && height <= length(cap.b-cap.a)) {
+            x = Hit(t, normalize(p - cap.a - dot(p - cap.a, u) * u), cap.i);
             return true;
         }
     }
 
     // Calculer l'intersection avec les demi-sphères aux extrémités de la capsule
     Hit hitTop, hitBottom;
-    bool hitTopSphere = IntersectSphere(ray, Sphere(newa, cap.r, cap.i), rot, angle, hitTop);
-    bool hitBottomSphere = IntersectSphere(ray, Sphere(newb, cap.r, cap.i), rot, angle, hitBottom);
+    bool hitTopSphere = IntersectSphere(ray, Sphere(cap.a, cap.r, cap.i), hitTop);
+    bool hitBottomSphere = IntersectSphere(ray, Sphere(cap.b, cap.r, cap.i), hitBottom);
 
     if (hitTopSphere && hitBottomSphere) {
         // Les deux demi-sphères ont été touchées, renvoyer l'intersection la plus proche
@@ -411,23 +386,30 @@ bool Intersect(Ray ray,out Hit x)
 {
     // Spheres
     const Sphere sph1=Sphere(vec3(0.,0.,1.),1.,3);
-    const Sphere sph2=Sphere(vec3(3.,3.,3.),1.,4);
+    const Sphere sph2=Sphere(vec3(1.,2.,0.),1.,4);
     const Plane pl=Plane(vec3(0.,0.,1.),vec3(0.,0.,0.),2);
-    const Ellipse ep1=Ellipse(vec3(-5.,2.,3.0), vec3(2., 3., 1.), 2);  
-    const Cylinder cyl=Cylinder(vec3(4.,-2.,2), vec3(2.,-2.,2), vec3(1.,0.,0.), vec3(0.,1.,0.),3);
-    const Capsule cap=Capsule(vec3(-1.,3.,1), vec3(-1.,5.,1), vec3(0.,1.,0.), 1.,4);
+    Ellipse ell=Ellipse(vec3(-5.,2.,3.0), vec3(2., 3., 1.), 2);  
+    Cylinder cyl=Cylinder(vec3(4.,-2.,2), vec3(2.,-2.,2), vec3(1.,0.,0.), vec3(0.,1.,0.),3);
+    Capsule cap=Capsule(vec3(-1.,3.,1), vec3(-1.,5.,1), vec3(0.,1.,0.), 1.,4);
     const Box box=Box(vec3(-4.,-4.,4.),vec3(-2.,-2.,2.), 1);
     const Cylinder cyl1=Cylinder(vec3(4.,1.,4), vec3(4.,1.,2), vec3(0.,0.,1.), vec3(0.,1.,0.),5);
- 
+     
+    // ROTATION
+    vec3 ROT = vec3(0.0,0.0,1.0);
+    float ANGLE = iTime;
+    cyl = RotationCylinder(cyl,ROT,ANGLE);
+    cap = RotationCapsule(cap,ROT,ANGLE);
+   // ell = RotationEllipse(ell,ROT,ANGLE);
+    
     x=Hit(1000.,vec3(0),-1);
     Hit current;
     bool ret=false;
-    if(IntersectSphere(ray,sph1,vec3(0.0,0.0,1.0),iTime, current)&&current.t<x.t){
+    if(IntersectSphere(ray,sph1,current)&&current.t<x.t){
         x=current;
         ret=true;
     }
     
-    if(IntersectSphere2(ray,sph2, vec3(0.0,0.0,1.0), current)&&current.t<x.t){
+    if(IntersectSphere(ray,sph2,current)&&current.t<x.t){
         x=current;
         ret=true;
     }
@@ -437,22 +419,22 @@ bool Intersect(Ray ray,out Hit x)
         ret=true;
     }
     
-    if(IntersectEllipse(ray,ep1,vec3(0.0,0.0,1.0),iTime, current)&&current.t<x.t){
+    if(IntersectEllipse(ray,ell,current)&&current.t<x.t){
         x = current;
         ret = true;
     }
     
-    if(IntersectTruncatedCylinder(ray,cyl,vec3(0.0,0.0,1.0),iTime,current)&&current.t<x.t){
+    if(IntersectTruncatedCylinder(ray,cyl,current)&&current.t<x.t){
         x = current;
         ret = true;
     }
     
-    if(IntersectTruncatedCylinder(ray,cyl1,vec3(0.0,0.0,1.0),iTime,current)&&current.t<x.t){
+    if(IntersectTruncatedCylinder(ray,cyl1,current)&&current.t<x.t){
         x = current;
         ret = true;
     }
     
-    if(IntersectCapsule(ray,cap,vec3(0.0,0.0,1.0),iTime,current)&&current.t<x.t){
+    if(IntersectCapsule(ray,cap,current)&&current.t<x.t){
         x = current;
         ret = true;
     }
