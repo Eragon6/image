@@ -294,12 +294,15 @@ bool IntersectTruncatedCylinder(Ray ray, Cylinder cyl, out Hit x)
 
 bool IntersectCapsule(Ray ray, Capsule cap, out Hit x)
 {
+    Hit hitTop, hitBottom;
+    bool hitTopSphere, hitBottomSphere;
+    
     float d2 = dot(ray.d, ray.d);
     vec3 u = normalize(cap.dir);
     vec3 oa = ray.o - cap.a;
     float a = d2 - dot(dot(ray.d, u), dot(ray.d, u));
     float b = 2.0 * (dot(oa, ray.d) - dot(oa, u) * dot(ray.d, u));
-    float c = dot(oa, oa) - (dot(dot(oa, u), dot(oa, u))) - (dot(cap.r, cap.r));
+    float c = dot(oa, oa) - (dot(dot(oa, u), dot(oa, u))) - (cap.r * cap.r);
     float delta = b * b - 4.0 * a * c;
     if (delta > 0.0) {
         float t1 = (-b - sqrt(delta)) / (2.0 * a);
@@ -309,7 +312,7 @@ bool IntersectCapsule(Ray ray, Capsule cap, out Hit x)
 
         // Vérifier si l'intersection est à l'intérieur du cylindre tronqué
         vec3 p = Point(ray, t);
-        float height = dot(p - cap.b, u);
+        float height = dot(p - cap.a, u);
         if (t > 0.0 && height >= 0.0 && height <= length(cap.b-cap.a)) {
             x = Hit(t, normalize(p - cap.a - dot(p - cap.a, u) * u), cap.i);
             return true;
