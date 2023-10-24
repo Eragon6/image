@@ -116,7 +116,7 @@ Capsule RotationCapsule(Capsule cap, vec3 rot, float angle)
     // Retranslation pour ramener le cylindre à sa position d'origine
     newa = newDirA + center;
     newb = newDirB + center;
-    return Capsule(newa, newb, newDirA, cap.r, cap.i);
+    return Capsule(newa, newb, newDirB, cap.r, cap.i);
 }
 
 
@@ -314,7 +314,32 @@ bool IntersectCapsule(Ray ray, Capsule cap, out Hit x)
             x = Hit(t, normalize(p - cap.a - dot(p - cap.a, u) * u), cap.i);
             return true;
         }
+        vec3 captb = cap.a;
+        bool comp = dot(p,cap.dir) < dot(captb,cap.dir);
+        if(height>length(cap.b-cap.a)){
+            oa = ray.o-cap.b;
+            captb = cap.b;
+            comp = dot(p,cap.dir) > dot(captb,cap.dir);
+        }
+        
+        b=dot(oa, ray.d);
+        c=dot(oa,oa)-cap.r*cap.r;
+        delta=b*b-c;
+        if (delta >0.){
+            float t = -b-sqrt(delta);
+            if (t > 0.)
+            {
+                vec3 p = Point(ray, t);
+                if (comp){
+                    x=Hit(t,normalize(p-captb),cap.i);
+                    return true;
+                }
+            }  
+        }
     }
+    return false;
+}
+    /*}
 
     // Calculer l'intersection avec les demi-sphères aux extrémités de la capsule
     Hit hitTop, hitBottom;
@@ -338,7 +363,7 @@ bool IntersectCapsule(Ray ray, Capsule cap, out Hit x)
     }
 
     return false;
-}
+}*/
 
 bool IntersectBox(Ray ray, Box box, vec3 rot, float angle, out Hit x)
 {
