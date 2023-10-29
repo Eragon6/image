@@ -57,10 +57,27 @@ struct Ellipse{
     int i;
 };
 
-struct Material
-{
+struct Material{
     vec3 d;// Diffuse
 };
+
+
+struct Scene{
+    Sphere spheres[100];
+    int nb_spheres;
+    Plane planes[100];
+    int nb_planes;
+    Ellipse ellipses[100];
+    int nb_ellipses;
+    Cylinder cylinders[100];
+    int nb_cylinders;
+    Capsule capsules[100];
+    int nb_capsules;
+    Box boxes[100];
+    int nb_boxes;
+};
+
+Scene scene;
 
 mat4 Translate(vec3 tr){
     mat4 translate_matrix = mat4( 1.0   , 0.0   , 0.0   , 0.0,
@@ -82,8 +99,7 @@ mat4 Rotation(vec3 rot, float theta){
     return rotation_matrix;
 }
 
-Cylinder RotationCylinder(Cylinder cyl, vec3 rot, float angle)
-{
+Cylinder RotateCylinder(Cylinder cyl, vec3 rot, float angle){
     // Translation du cylindre pour qu'il soit centré autour de l'origine
     vec3 center = (cyl.b - cyl.a) / 2.0 + cyl.a;
     vec3 newa = cyl.a - center;
@@ -101,8 +117,7 @@ Cylinder RotationCylinder(Cylinder cyl, vec3 rot, float angle)
     return Cylinder(newa, newb, newDirA, cyl.r, cyl.i);
 }
 
-Capsule RotationCapsule(Capsule cap, vec3 rot, float angle)
-{
+Capsule RotateCapsule(Capsule cap, vec3 rot, float angle){
     // Translation du cylindre pour qu'il soit centré autour de l'origine
     vec3 center = (cap.b - cap.a) / 2.0 + cap.a;
     vec3 newa = cap.a - center;
@@ -119,9 +134,16 @@ Capsule RotationCapsule(Capsule cap, vec3 rot, float angle)
     return Capsule(newa, newb, newDirB, cap.r, cap.i);
 }
 
+// TODO : Rotation d'ellipse
+Ellipse RotateEllipse(Ellipse ell, vec3 rot, float angle){
+    return ell;
+}
 
-float Checkers(in vec2 p)
-{
+Box RotateBox(Box box, vec3 rot, float angle){
+    return box;
+}
+
+float Checkers(in vec2 p){
     // Filter kernel
     vec2 w=fwidth(p)+.001;
     // Box box filter
@@ -133,8 +155,7 @@ float Checkers(in vec2 p)
 // Hemisphere direction
 // seed : Integer seed, from 0 to N
 //    n : Direction of the hemisphere
-vec3 Hemisphere(int seed,vec3 n)
-{
+vec3 Hemisphere(int seed,vec3 n){
     float a=fract(sin(176.19*float(seed)));// Uniform randoms
     float b=fract(sin(164.19*float(seed)));
     
@@ -150,21 +171,18 @@ vec3 Hemisphere(int seed,vec3 n)
 // Compute point on ray
 // ray : The ray
 //   t : Distance
-vec3 Point(Ray ray,float t)
-{
+vec3 Point(Ray ray,float t){
     return ray.o+t*ray.d;
 }
 
-vec3 PointRot(vec3 ro, vec3 rd,float t)
-{
+vec3 PointRot(vec3 ro, vec3 rd,float t){
     return ro+t*rd;
 }
 
 // Compute color
 // i : Texture index
 // p : Point
-Material Texture(vec3 p,int i)
-{
+Material Texture(vec3 p,int i){
     if(i==1)
     {
         return Material(vec3(.8,.5,.4));
@@ -186,8 +204,7 @@ Material Texture(vec3 p,int i)
 // Sphere intersection
 // ray : The ray
 //   x : Returned intersection information
-bool IntersectSphere(Ray ray,Sphere sph, out Hit x)
-{
+bool IntersectSphere(Ray ray,Sphere sph, out Hit x){
     vec3 oc=ray.o-sph.c;
     float b=dot(oc,ray.d);
     float c=dot(oc,oc)-sph.r*sph.r;
@@ -209,8 +226,7 @@ bool IntersectSphere(Ray ray,Sphere sph, out Hit x)
 // Plane intersection
 // ray : The ray
 //   x : Returned intersection information
-bool IntersectPlane(Ray ray,Plane pl,out Hit x)
-{
+bool IntersectPlane(Ray ray,Plane pl,out Hit x){
     float t=-dot(ray.o-pl.p,pl.n)/dot(ray.d,pl.n);
     if(t>0.)
     {
@@ -242,8 +258,7 @@ bool IntersectEllipse(Ray ray, Ellipse e,  out Hit x) {
     return false;    
 }
 
-bool IntersectTruncatedCylinder(Ray ray, Cylinder cyl, out Hit x)
-{
+bool IntersectTruncatedCylinder(Ray ray, Cylinder cyl, out Hit x){
     float d2 = dot(ray.d, ray.d);
     vec3 u = normalize(cyl.dir);
     vec3 oa = ray.o - cyl.a;
@@ -292,8 +307,7 @@ bool IntersectTruncatedCylinder(Ray ray, Cylinder cyl, out Hit x)
     return false;
 }
 
-bool IntersectCapsule(Ray ray, Capsule cap, out Hit x)
-{
+bool IntersectCapsule(Ray ray, Capsule cap, out Hit x){
     Hit hitTop, hitBottom;
     bool hitTopSphere, hitBottomSphere;
     
@@ -342,51 +356,12 @@ bool IntersectCapsule(Ray ray, Capsule cap, out Hit x)
     }
     return false;
 }
-    /*}
 
-    // Calculer l'intersection avec les demi-sphères aux extrémités de la capsule
-    Hit hitTop, hitBottom;
-    bool hitTopSphere = IntersectSphere(ray, Sphere(cap.a, cap.r, cap.i), hitTop);
-    bool hitBottomSphere = IntersectSphere(ray, Sphere(cap.b, cap.r, cap.i), hitBottom);
-
-    if (hitTopSphere && hitBottomSphere) {
-        // Les deux demi-sphères ont été touchées, renvoyer l'intersection la plus proche
-        if (hitTop.t < hitBottom.t) {
-            x = hitTop; // Conserver l'intersection la plus proche (celle avec la demi-sphère supérieure)
-        } else {
-            x = hitBottom; // Conserver l'intersection la plus proche (celle avec la demi-sphère inférieure)
-        }
-        return true;
-    } else if (hitTopSphere) {
-        x = hitTop;
-        return true;
-    } else if (hitBottomSphere) {
-        x = hitBottom;
-        return true;
-    }
-
-    return false;
-}*/
-
-bool IntersectBox(Ray ray, Box box, vec3 rot, float angle, out Hit x)
+bool IntersectBox(Ray ray, Box box, out Hit x)
 {
-    mat4 Rot = Rotation(normalize(rot), angle);
-    mat4 inv = inverse(Rot);
-    vec3 center =(box.boxMax-box.boxMin)/2.+box.boxMin;
-    vec3 rotCenter = (inv * vec4(center, 1.0)).xyz;
-    
-    vec3 Mm = (box.boxMax-box.boxMin)/2.;
-    vec3 newMin = rotCenter-Mm;
-    vec3 newMax = rotCenter+Mm;
-    
-    // ray to box
-    vec3 rdd = (inv*vec4(ray.d,0.0)).xyz;
-    vec3 roo = (inv*vec4(ray.o,1.0)).xyz;
-    
-    vec3 invDirection = 1.0 / rdd;
-    vec3 tMin = (newMin - roo) * invDirection;
-    vec3 tMax = (newMax - roo) * invDirection;
-
+    vec3 invDirection = 1.0 / ray.d;
+    vec3 tMin = (box.boxMin - ray.o) * invDirection;
+    vec3 tMax = (box.boxMax - ray.o) * invDirection;
 
     vec3 t1 = min(tMin, tMax);
     vec3 t2 = max(tMin, tMax);
@@ -395,96 +370,149 @@ bool IntersectBox(Ray ray, Box box, vec3 rot, float angle, out Hit x)
     float tFar = min(min(t2.x, t2.y), t2.z);
 
     if (tNear > tFar || tFar < 0.0) {
-        return false; 
+        return false; // Pas d'intersection
     }
 
-    // Calcul normal
-    vec4 normal = (tNear >0.0) ? vec4(tNear,(step(vec3(tNear),t1))) :
-                                vec4(tFar,(step(t2,vec3(tFar))));
-    normal.yzw = normalize((Rot*vec4(-sign(rdd)*normal.yzw,0.0)).xyz);
+    vec3 intersectionPoint = Point(ray, tNear);
+    vec3 normal;
 
-    x = Hit(tNear, normal.yzw, 1);
+    // Déterminer la normale de la face de la boîte touchée
+    if (tNear == t1.x) normal = normalize(intersectionPoint-(box.boxMin+box.boxMax)/2.);
+    else if (tNear == t1.y) normal = normalize(intersectionPoint-(box.boxMin+box.boxMax)/2.);
+    else if (tNear == t1.z) normal = normalize(intersectionPoint-(box.boxMin+box.boxMax)/2.);
+    /*else if (tNear == t2.x) normal = normalize(intersectionPoint-(box.boxMin+box.boxMax)/2.);
+    else if (tNear == t2.y) normal = normalize(intersectionPoint-(box.boxMin-box.boxMax)/2.);
+    else normal = normalize(intersectionPoint-(box.boxMin+box.boxMax)/2.);*/
+
+    x = Hit(tNear, normal, 1);
     return true;
+}
+
+void addSphereToScene(out Scene sc, Sphere sph){
+    sc.spheres[sc.nb_spheres] = sph;
+    sc.nb_spheres++;
+}
+
+void addPlaneToScene(out Scene sc, Plane pl){
+    sc.planes[sc.nb_planes] = pl;
+    sc.nb_planes++;
+}
+
+void addEllipseToScene(out Scene sc, Ellipse ell){
+    sc.ellipses[sc.nb_ellipses] = ell;
+    sc.nb_ellipses++;
+}
+
+void addCylinderToScene(out Scene sc, Cylinder cyl){
+    sc.cylinders[sc.nb_cylinders] = cyl;
+    sc.nb_cylinders++;
+}
+
+void addCapsuleToScene(out Scene sc, Capsule cap){
+    sc.capsules[sc.nb_capsules] = cap;
+    sc.nb_capsules++;
+}
+
+void addBoxToScene(out Scene sc, Box box){
+    sc.boxes[sc.nb_boxes] = box;
+    sc.nb_boxes++;
+}
+
+void IntersectSpheres(Ray ray, out Hit x, out bool ret, out Hit current){
+    for(int i = 0; i < scene.nb_spheres; i++)
+        if(IntersectSphere(ray,scene.spheres[i],current)&&current.t<x.t){
+            x=current;
+            ret=true;
+        }
+}
+
+void IntersectPlanes(Ray ray, out Hit x, out bool ret, out Hit current){
+    for(int i = 0; i < scene.nb_planes; i++)
+        if(IntersectPlane(ray,scene.planes[i],current)&&current.t<x.t){
+            x=current;
+            ret=true;
+        }
+}
+
+void IntersectEllipses(Ray ray, out Hit x, out bool ret, out Hit current){
+    for(int i = 0; i < scene.nb_ellipses; i++)
+        if(IntersectEllipse(ray,scene.ellipses[i],current)&&current.t<x.t){
+            x=current;
+            ret=true;
+        }
+}
+
+void IntersectTruncatedCylinders(Ray ray, out Hit x, out bool ret, out Hit current){
+    for(int i = 0; i < scene.nb_cylinders; i++)
+        if(IntersectTruncatedCylinder(ray,scene.cylinders[i],current)&&current.t<x.t){
+            x=current;
+            ret=true;
+        }
+}
+
+void IntersectCapsules(Ray ray, out Hit x, out bool ret, out Hit current){
+    for(int i = 0; i < scene.nb_capsules; i++)
+        if(IntersectCapsule(ray,scene.capsules[i],current)&&current.t<x.t){
+            x=current;
+            ret=true;
+        }
+}
+
+void IntersectBoxes(Ray ray, out Hit x, out bool ret, out Hit current){
+    for(int i = 0; i < scene.nb_boxes; i++)
+        if(IntersectBox(ray,scene.boxes[i],current)&&current.t<x.t){
+            x=current;
+            ret=true;
+        }
+}
+
+void RotateScene(out Scene sc, vec3 rot, float angle){
+    for(int i = 0; i < sc.nb_cylinders; i++)
+        sc.cylinders[i] = RotateCylinder(sc.cylinders[i], rot, angle);
+
+    for(int i = 0; i < sc.nb_capsules; i++)
+        sc.capsules[i] = RotateCapsule(sc.capsules[i], rot, angle);
+
+    for(int i = 0; i < sc.nb_ellipses; i++)
+        sc.ellipses[i] = RotateEllipse(sc.ellipses[i], rot, angle);
+
+    for(int i = 0; i < sc.nb_boxes; i++)
+        sc.boxes[i] = RotateBox(sc.boxes[i], rot, angle);
 }
 
 // Scene intersection
 // ray : The ray
 //   x : Returned intersection information
-bool Intersect(Ray ray,out Hit x)
-{
-    // Spheres
-    const Sphere sph1=Sphere(vec3(0.,0.,1.),1.,3);
-    const Sphere sph2=Sphere(vec3(1.,2.,0.),1.,4);
-    const Plane pl=Plane(vec3(0.,0.,1.),vec3(0.,0.,0.),2);
-    Ellipse ell=Ellipse(vec3(-5.,2.,3.0), vec3(2., 3., 1.), 2);  
-    Cylinder cyl=Cylinder(vec3(4.,-2.,2), vec3(2.,-2.,2), vec3(1.,0.,0.), vec3(0.,1.,0.),3);
-    Capsule cap=Capsule(vec3(-1.,3.,1), vec3(-1.,5.,1), vec3(0.,1.,0.), 1.,4);
-    const Box box=Box(vec3(-4.,-4.,4.),vec3(-2.,-2.,2.), 1);
-    const Cylinder cyl1=Cylinder(vec3(4.,1.,4), vec3(4.,1.,2), vec3(0.,0.,1.), vec3(0.,1.,0.),5);
-     
+bool Intersect(Ray ray,out Hit x){
     // ROTATION
     vec3 ROT = vec3(0.0,0.0,1.0);
     float ANGLE = iTime;
-    cyl = RotationCylinder(cyl,ROT,ANGLE);
-    cap = RotationCapsule(cap,ROT,ANGLE);
-   // ell = RotationEllipse(ell,ROT,ANGLE);
+    // Cylinder cyl = RotationCylinder(scene.cylinders[0],ROT,ANGLE);
+    // Capsule cap = RotationCapsule(scene.capsules[0],ROT,ANGLE);
+    // ell = RotationEllipse(ell,ROT,ANGLE);
     
     x=Hit(1000.,vec3(0),-1);
     Hit current;
     bool ret=false;
-    if(IntersectSphere(ray,sph1,current)&&current.t<x.t){
-        x=current;
-        ret=true;
-    }
-    
-    if(IntersectSphere(ray,sph2,current)&&current.t<x.t){
-        x=current;
-        ret=true;
-    }
-    
-    if(IntersectPlane(ray,pl,current)&&current.t<x.t){
-        x=current;
-        ret=true;
-    }
-    
-    if(IntersectEllipse(ray,ell,current)&&current.t<x.t){
-        x = current;
-        ret = true;
-    }
-    
-    if(IntersectTruncatedCylinder(ray,cyl,current)&&current.t<x.t){
-        x = current;
-        ret = true;
-    }
-    
-    if(IntersectTruncatedCylinder(ray,cyl1,current)&&current.t<x.t){
-        x = current;
-        ret = true;
-    }
-    
-    if(IntersectCapsule(ray,cap,current)&&current.t<x.t){
-        x = current;
-        ret = true;
-    }
-    
-    if(IntersectBox(ray,box,vec3(0.0,0.0,1.0),iTime, current)&&current.t<x.t){
-        x = current;
-        ret = true;
-    }
+
+    IntersectSpheres(ray, x, ret, current);
+    IntersectPlanes(ray, x, ret, current);
+    IntersectEllipses(ray, x, ret, current);
+    IntersectTruncatedCylinders(ray, x, ret, current);
+    IntersectCapsules(ray, x, ret, current);
+    IntersectBoxes(ray, x, ret, current);
     
     return ret;
 }
 
-vec3 Background(vec3 rd)
-{
+vec3 Background(vec3 rd){
     return mix(vec3(.8,.8,.9),vec3(.7,.7,.8),rd.z);
 }
 
 // Camera rotation matrix
 // ro : Camera origin
 // ta : Target point
-mat3 setCamera(in vec3 ro,in vec3 ta)
-{
+mat3 setCamera(in vec3 ro,in vec3 ta){
     vec3 cw=normalize(ta-ro);
     vec3 cp=vec3(0,0,1);
     vec3 cu=-normalize(cross(cw,cp));
@@ -495,8 +523,7 @@ mat3 setCamera(in vec3 ro,in vec3 ta)
 // Apply color model
 // m : Material
 // n : normal
-vec3 Color(Material m,vec3 n)
-{
+vec3 Color(Material m,vec3 n){
     vec3 light=normalize(vec3(1,1,1));
  
     float diff=clamp(dot(n,light),0.,1.);
@@ -504,14 +531,12 @@ vec3 Color(Material m,vec3 n)
     return col;
 }
 
-vec3 ColorUniform(Material m, vec3 n)
-{
+vec3 ColorUniform(Material m, vec3 n){
     return m.d;
 }
 
 
-vec3 ColorCheckers(Material mat, vec3 p, vec3 n)
-{
+vec3 ColorCheckers(Material mat, vec3 p, vec3 n){
     // Size of a checker cell
     float CHECKER_SIZE = 1.0;
 
@@ -533,15 +558,13 @@ vec3 ColorCheckers(Material mat, vec3 p, vec3 n)
     return finalColor;
 }
 
-vec3 HSVtoRGB(vec3 c)
-{
+vec3 HSVtoRGB(vec3 c){
     vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
     vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
     return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
 }
 
-vec3 ColorConcentric(vec3 p)
-{
+vec3 ColorConcentric(vec3 p){
    // Centre de la texture
     const vec3 CENTER = vec3(0.0, 0.0, 0.);
 
@@ -554,8 +577,7 @@ vec3 ColorConcentric(vec3 p)
     return color;
 }
 
-vec3 ColorRadial(vec3 p)
-{
+vec3 ColorRadial(vec3 p){
     const vec3 AXIS = normalize(vec3(0.0, 0.0, 1.0));
 
     // Distance from the axis
@@ -573,8 +595,7 @@ vec3 ColorRadial(vec3 p)
 }
 
 // Rendering
-vec3 Shade(Ray ray)
-{
+vec3 Shade(Ray ray){
     // Intersect contains all the geo detection
     Hit x;
     bool idx=Intersect(ray,x);
@@ -601,8 +622,19 @@ vec3 Shade(Ray ray)
     return vec3(0);
 }
 
-void mainImage(out vec4 fragColor,in vec2 fragCoord)
-{
+void initializeScene(out Scene sc){
+    addSphereToScene(sc, Sphere(vec3(0.,0.,1.),1.,3));
+    addSphereToScene(sc, Sphere(vec3(1.,2.,0.),1.,4));
+    addPlaneToScene(sc, Plane(vec3(0.,0.,1.),vec3(0.,0.,0.),2));
+    addEllipseToScene(sc, Ellipse(vec3(-5.,2.,3.0), vec3(2., 3., 1.), 2));
+    addCylinderToScene(sc, Cylinder(vec3(4.,-2.,2), vec3(2.,-2.,2), vec3(1.,0.,0.), vec3(0.,1.,0.),3));
+    addCylinderToScene(sc, Cylinder(vec3(4.,1.,4), vec3(4.,1.,2), vec3(0.,0.,1.), vec3(0.,1.,0.),5));
+    addCapsuleToScene(sc, Capsule(vec3(-1.,3.,1), vec3(-1.,5.,1), vec3(0.,1.,0.), 1.,4));
+    addBoxToScene(sc, Box(vec3(-4.,-4.,4.),vec3(-2.,-2.,2.), 1));
+}
+
+
+void mainImage(out vec4 fragColor,in vec2 fragCoord){
     // From uv which are the pixel coordinates in [0,1], change to [-1,1] and apply aspect ratio
     vec2 uv=(-iResolution.xy+2.*fragCoord.xy)/iResolution.y;
     
@@ -616,6 +648,9 @@ void mainImage(out vec4 fragColor,in vec2 fragCoord)
     
     // Ray
     vec3 rd=ca*normalize(vec3(uv.xy*tan(radians(22.5)),1.));
+
+    initializeScene(scene);
+    RotateScene(scene, vec3(0.0,0.0,1.0), iTime);
     
     // Render
     vec3 col=Shade(Ray(ro,rd));
