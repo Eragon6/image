@@ -21,13 +21,6 @@ struct Ray{
     vec3 d;// Direction
 };
 
-struct Tore{
-    vec3 Ro;
-    float r;
-    float R;
-    int i;
-};
-
 struct Box{
     vec3 boxMin;
     vec3 boxMax;
@@ -41,7 +34,6 @@ struct Capsule{
     float r;
     int i;
 };
-
 
 struct Cylinder{
     vec3 a;
@@ -57,10 +49,17 @@ struct Ellipse{
     int i;
 };
 
-struct Material{
-    vec3 d;// Diffuse
+struct Tore{
+    float r;
+    float R;
+    int i;
 };
 
+struct Material{
+    vec3 diffuse;
+    vec3 specular;
+    vec3 ambient;
+};
 
 struct Scene{
     Sphere spheres[100];
@@ -75,6 +74,10 @@ struct Scene{
     int nb_capsules;
     Box boxes[100];
     int nb_boxes;
+    Tore tores[100];
+    int nb_tores;
+    vec3[100] lightPositions;
+    int nb_lights;
 };
 
 Scene scene;
@@ -99,9 +102,9 @@ mat4 Rotation(vec3 rot, float theta){
     return rotation_matrix;
 }
 
-Cylinder RotateCylinder(Cylinder cyl, vec3 rot, float angle){
+void RotateCylinder(out Cylinder cyl, vec3 rot, float angle){
     // Translation du cylindre pour qu'il soit centré autour de l'origine
-    vec3 center = (cyl.b - cyl.a) / 2.0 + cyl.a;
+    vec3 center = (cyl.b + cyl.a) / 2.0;
     vec3 newa = cyl.a - center;
     vec3 newb = cyl.b - center;
 
@@ -114,12 +117,12 @@ Cylinder RotateCylinder(Cylinder cyl, vec3 rot, float angle){
     newa = newDirA + center;
     newb = newDirB + center;
 
-    return Cylinder(newa, newb, newDirA, cyl.r, cyl.i);
+    cyl =  Cylinder(newa, newb, newDirA, cyl.r, cyl.i);
 }
 
-Capsule RotateCapsule(Capsule cap, vec3 rot, float angle){
+void RotateCapsule(out Capsule cap, vec3 rot, float angle){
     // Translation du cylindre pour qu'il soit centré autour de l'origine
-    vec3 center = (cap.b - cap.a) / 2.0 + cap.a;
+    vec3 center = (cap.b + cap.a) / 2.0;
     vec3 newa = cap.a - center;
     vec3 newb = cap.b - center;
 
@@ -131,16 +134,7 @@ Capsule RotateCapsule(Capsule cap, vec3 rot, float angle){
     // Retranslation pour ramener le cylindre à sa position d'origine
     newa = newDirA + center;
     newb = newDirB + center;
-    return Capsule(newa, newb, newDirB, cap.r, cap.i);
-}
-
-// TODO : Rotation d'ellipse
-Ellipse RotateEllipse(Ellipse ell, vec3 rot, float angle){
-    return ell;
-}
-
-Box RotateBox(Box box, vec3 rot, float angle){
-    return box;
+    cap = Capsule(newa, newb, newDirB, cap.r, cap.i);
 }
 
 float Checkers(in vec2 p){
@@ -179,26 +173,105 @@ vec3 PointRot(vec3 ro, vec3 rd,float t){
     return ro+t*rd;
 }
 
+// Apply color model
+// m : Material
+// n : normal
+vec3 Color(Material m,vec3 n){
+    vec3 light=normalize(vec3(1,1,1));
+ 
+    float diff=clamp(dot(n,light),0.,1.);
+    vec3 col=m.diffuse*diff+vec3(.2,.2,.2);
+    return col;
+}
+
+vec3 ColorUniform(Material m, vec3 n){
+    return m.diffuse;
+}
+
+vec3 HSVtoRGB(vec3 c){
+    vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+    vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+    return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+}
+
+vec3 ColorConcentric(vec3 p){
+   // Centre de la texture
+    const vec3 CENTER = vec3(0.0, 0.0, 0.);
+
+    // Distance from the center
+    float distance = length(p - CENTER);
+
+    // Variation with the distance
+    float hue = mod(distance, 1.0); 
+    vec3 color = HSVtoRGB(vec3(hue, 1.0, 1.0)); 
+    return color;
+}
+
+vec3 ColorRadial(vec3 p){
+    const vec3 AXIS = normalize(vec3(0.0, 0.0, 1.0));
+
+    // Distance from the axis
+    float distanceToAxis = length(cross(p, AXIS));
+
+    // Color variation
+    float hue = distanceToAxis / 2.0;
+
+    float sat = 1.0;
+    float lum = 1.0; 
+    
+    vec3 rgbColor = HSVtoRGB(vec3(hue, sat, lum));
+    
+    return rgbColor;
+}
+
+Material CheckerboardTexture(vec3 point) {
+    // Définir la taille d'une case du damier
+    float checkerSize = 1.0;
+
+    // Ajouter une petite valeur d'epsilon aux coordonnées du point
+    float epsilon = 0.1; // Ajustez cette valeur si nécessaire
+    point += epsilon;
+
+    // Calculer les indices de cases en x, y et z en utilisant des valeurs en virgule flottante
+    float xIndex = floor(point.x / checkerSize);
+    float yIndex = floor(point.y / checkerSize);
+    float zIndex = floor(point.z / checkerSize);
+
+    vec3 diff, spec, amb;
+    amb = vec3(0.);
+
+    // Alternance des cases diffuses et spéculaires en fonction des indices
+    if ((int(xIndex) + int(yIndex) + int(zIndex))%2== 0) {
+        // Case diffuse
+        diff = vec3(0.8, 0.5, 0.3); 
+        spec = vec3(0.1, 0.1, 0.1); 
+    } else {
+        // Case spéculaire
+        diff = vec3(0.1, 0.1, 0.1);
+        spec = vec3(0.2, 0.7, 0.8); 
+    }
+
+    return Material(diff, spec, amb);
+}
+
 // Compute color
 // i : Texture index
 // p : Point
 Material Texture(vec3 p,int i){
-    if(i==1)
-    {
-        return Material(vec3(.8,.5,.4));
+    switch(i){
+        case 0:{                                                        // CHECKBOARD
+            return CheckerboardTexture(p);
+        }
+        case 1: return Material(vec3(.4,.0,.4),vec3(.2),vec3(.1));      // NORMAL VIOLET
+        case 3: return Material(ColorConcentric(p),vec3(.0),vec3(.0));  // CONCENTRIC
+        case 4: return Material(ColorRadial(p),vec3(.2),vec3(.1));      // RADIAL
+        case 5: return Material(vec3(.8,.8,.8),vec3(.0),vec3(.0));      // UNIFORM
+        case 6: return Material(vec3(.47,.15,.11),vec3(.1),vec3(.0));   // EARTH
+        case 7: return Material(vec3(.2,.5,.3),vec3(.0),vec3(.0));      // UNIFORM GREEN
+        case 8: return Material(vec3(.2,.2,.7),vec3(.0),vec3(.0));      // UNIFORM BLUE
+        case 9: return Material(vec3(.8,.6,.2),vec3(.0),vec3(.0));      // UNIFORM ORANGE
+        default: return Material(vec3(0),vec3(0),vec3(0));
     }
-    else if(i==0)
-    {
-        // compute checkboard
-        float f=Checkers(.5*p.xy);
-        vec3 col=vec3(.4,.5,.7)+f*vec3(.1);
-        return Material(col);
-    }
-    else if(i==5)
-    {
-        return Material(vec3(.8,.8,.4));
-    }
-    return Material(vec3(0));
 }
 
 // Sphere intersection
@@ -237,11 +310,15 @@ bool IntersectPlane(Ray ray,Plane pl,out Hit x){
     return false;
 }
 
-
-bool IntersectEllipse(Ray ray, Ellipse e,  out Hit x) {
-    vec3 oc=ray.o-e.c;
-    float a = dot(ray.d/e.e, ray.d/e.e);
-    float b = 2.*dot(oc/e.e, ray.d/e.e);
+bool IntersectEllipse(Ray ray, Ellipse e, vec3 rot, float angle, out Hit x) {
+    mat4 Rot = Rotation(normalize(rot), angle);
+    mat4 inv = inverse(Rot);
+    vec3 rotCenter = (inv * vec4(e.c, 1.0)).xyz;
+    vec3 rdd = (inv*vec4(ray.d,0.0)).xyz;
+    vec3 roo = (inv*vec4(ray.o,1.0)).xyz;
+    vec3 oc=roo-rotCenter;
+    float a = dot(rdd/e.e, rdd/e.e);
+    float b = 2.*dot(oc/e.e, rdd/e.e);
     float c = dot(oc/e.e, oc/e.e) - 1.;
     float d = b*b-4.*a*c;
     
@@ -250,12 +327,12 @@ bool IntersectEllipse(Ray ray, Ellipse e,  out Hit x) {
         float t=min((-b-sqrt(d))/(2.*a), (-b+sqrt(d))/(2.*a));
         if(t>0.)
         {
-            vec3 p=Point(ray,t);
-            x=Hit(t,normalize((p-e.c)/dot(e.e, e.e)), e.i);
+            vec3 p=PointRot(roo,rdd,t);            
+            x=Hit(t,normalize((Rot*vec4((p-rotCenter),0.0)).xyz), e.i);
             return true;
         }
     }
-    return false;    
+    return false;   
 }
 
 bool IntersectTruncatedCylinder(Ray ray, Cylinder cyl, out Hit x){
@@ -357,34 +434,129 @@ bool IntersectCapsule(Ray ray, Capsule cap, out Hit x){
     return false;
 }
 
-bool IntersectBox(Ray ray, Box box, out Hit x)
+bool IntersectBox(Ray ray, Box box, vec3 rot, float angle, out Hit x)
 {
-    vec3 invDirection = 1.0 / ray.d;
-    vec3 tMin = (box.boxMin - ray.o) * invDirection;
-    vec3 tMax = (box.boxMax - ray.o) * invDirection;
-
+    mat4 Rot = Rotation(normalize(rot), angle);
+    mat4 inv = inverse(Rot);
+    vec3 center =(box.boxMax-box.boxMin)/2.+box.boxMin;
+    vec3 rotCenter = (inv * vec4(center, 1.0)).xyz;
+    
+    vec3 Mm = (box.boxMax-box.boxMin)/2.;
+    vec3 newMin = rotCenter-Mm;
+    vec3 newMax = rotCenter+Mm;
+    
+    // ray to box
+    vec3 rdd = (inv*vec4(ray.d,0.0)).xyz;
+    vec3 roo = (inv*vec4(ray.o,1.0)).xyz;
+    
+    vec3 invDirection = 1.0 / rdd;
+    vec3 tMin = (newMin - roo) * invDirection;
+    vec3 tMax = (newMax - roo) * invDirection;
     vec3 t1 = min(tMin, tMax);
     vec3 t2 = max(tMin, tMax);
-
     float tNear = max(max(t1.x, t1.y), t1.z);
     float tFar = min(min(t2.x, t2.y), t2.z);
-
     if (tNear > tFar || tFar < 0.0) {
-        return false; // Pas d'intersection
+        return false; 
     }
+    // Calcul normal
+    vec4 normal = (tNear >0.0) ? vec4(tNear,(step(vec3(tNear),t1))) :
+                                vec4(tFar,(step(t2,vec3(tFar))));
+    normal.yzw = normalize((Rot*vec4(-sign(rdd)*normal.yzw,0.0)).xyz);
+    x = Hit(tNear, normal.yzw, 1);
+    return true;
+}
 
-    vec3 intersectionPoint = Point(ray, tNear);
-    vec3 normal;
+bool IntersectTore(Ray ray, Tore tor, vec3 rot,vec3 trs, float angle, out Hit x){
+    mat4 rt = Rotation(normalize(rot), angle);
+    mat4 tr = Translate(trs);
+    mat4 txi = tr * rt;
+    mat4 txx = inverse(txi);
+    vec3 rdd = (txx*vec4(ray.d,0.0)).xyz;
+    vec3 roo = (txx*vec4(ray.o,1.0)).xyz;
 
-    // Déterminer la normale de la face de la boîte touchée
-    if (tNear == t1.x) normal = normalize(intersectionPoint-(box.boxMin+box.boxMax)/2.);
-    else if (tNear == t1.y) normal = normalize(intersectionPoint-(box.boxMin+box.boxMax)/2.);
-    else if (tNear == t1.z) normal = normalize(intersectionPoint-(box.boxMin+box.boxMax)/2.);
-    /*else if (tNear == t2.x) normal = normalize(intersectionPoint-(box.boxMin+box.boxMax)/2.);
-    else if (tNear == t2.y) normal = normalize(intersectionPoint-(box.boxMin-box.boxMax)/2.);
-    else normal = normalize(intersectionPoint-(box.boxMin+box.boxMax)/2.);*/
+    // vec3 oc = ray.o - tor.ct;
+    // float po = 1.0;
+    float Ra2 = tor.r*tor.r;
+    float ra2 = tor.R*tor.R;
+    // float m = dot(ray.o,ray.o);
+    float m = dot(roo,roo);
+    // float n = dot(ray.o,ray.d);
+    float n = dot(roo,rdd);
 
-    x = Hit(tNear, normal, 1);
+    float k = (m - ra2 - Ra2)/2.0;
+    float k3 = n;
+  
+    
+    float k2 = n*n + Ra2*rdd.z*rdd.z + k;
+    float k1 = k*n + Ra2*roo.z*rdd.z;
+    float k0 = k*k + Ra2*roo.z*roo.z - Ra2*ra2;
+    
+    float c2 = 2.0*k2 - 3.0*k3*k3;
+    float c1 = k3*(k3*k3 - k2) + k1;
+    float c0 = k3*(k3*(-3.0*k3*k3 + 4.0*k2) - 8.0*k1) + 4.0*k0;
+    c2 /= 3.0;
+    c1 *= 2.0;
+    c0 /= 3.0;
+    float Q = c2*c2 + c0;
+    float R = 3.0*c0*c2 - c2*c2*c2 - c1*c1;
+    float h = R*R - Q*Q*Q;
+    float z = 0.0;
+    if(h<0.0){
+        float sQ = sqrt(Q);
+        z = 2.0*sQ*cos(acos(R/(sQ*Q)) / 3.0);
+    } else {
+        float sQ = pow( sqrt(h) + abs(R), 1.0/3.0 );
+        z = sign(R)*abs( sQ + Q/sQ );
+    }
+    z = c2 - z;
+    float d1 = z - 3.0*c2;
+    float d2 = z*z - 3.0*c0;
+    if( abs(d1) < 1.0e-4){
+        if(d2<0.0){
+            return false;
+        }
+        d2 = sqrt(d2);
+    } else {
+        if(d1 < 0.0){
+            return false;
+        }
+        d1 = sqrt( d1/2.0 );
+        d2 = c1/d1;
+    }
+    float r = 1e20;
+    h = d1*d1 - z + d2;
+    if(h>0.0){
+        h = sqrt(h);
+        float t1 = -d1 - h - k3;
+        // t1 = (po<0.0)?2.0/t1:t1;
+        float t2 = -d1 + h - k3;
+        // t2 = (po<0.0)?2.0/t2:t2;
+        if(t1>0.0){
+            r=t1;
+        }
+        if(t2>0.0){
+            r=min(r,t2);
+        }
+    }
+    h = d1*d1 - z - d2;
+    if(h>0.0){
+        h=sqrt(h);
+        float t1 = d1 - h - k3;
+        float t2 = d1 + h - k3;
+        if(t1>0.0){
+            r=min(r,t1);
+        }
+        if(t2>0.0){
+            r=min(r,t2);
+        }
+    }
+    // vec3 p = Point(ray,r);
+    vec3 p = roo + r*rdd;
+    vec3 nor = p*(dot(p,p) - tor.R*tor.R - tor.r*tor.r*vec3(1.0,1.0,-1.0));
+    vec4 tmp = vec4(r, nor);
+    tmp.yzw = (txi*vec4(tmp.yzw,0.0)).xyz;
+    x = Hit(tmp.x, normalize(tmp.yzw), tor.i);
     return true;
 }
 
@@ -418,6 +590,16 @@ void addBoxToScene(out Scene sc, Box box){
     sc.nb_boxes++;
 }
 
+void addToreToScene(out Scene sc, Tore tor){
+    sc.tores[sc.nb_tores] = tor;
+    sc.nb_tores++;
+}
+
+void addLightToScene(out Scene sc, vec3 position){
+    sc.lightPositions[sc.nb_lights] = position;
+    sc.nb_lights++;
+}
+
 void IntersectSpheres(Ray ray, out Hit x, out bool ret, out Hit current){
     for(int i = 0; i < scene.nb_spheres; i++)
         if(IntersectSphere(ray,scene.spheres[i],current)&&current.t<x.t){
@@ -436,9 +618,9 @@ void IntersectPlanes(Ray ray, out Hit x, out bool ret, out Hit current){
 
 void IntersectEllipses(Ray ray, out Hit x, out bool ret, out Hit current){
     for(int i = 0; i < scene.nb_ellipses; i++)
-        if(IntersectEllipse(ray,scene.ellipses[i],current)&&current.t<x.t){
-            x=current;
-            ret=true;
+        if(IntersectEllipse(ray,scene.ellipses[i],vec3(0.0,0.0,1.0),iTime, current)&&current.t<x.t){
+            x = current;
+            ret = true;
         }
 }
 
@@ -460,24 +642,26 @@ void IntersectCapsules(Ray ray, out Hit x, out bool ret, out Hit current){
 
 void IntersectBoxes(Ray ray, out Hit x, out bool ret, out Hit current){
     for(int i = 0; i < scene.nb_boxes; i++)
-        if(IntersectBox(ray,scene.boxes[i],current)&&current.t<x.t){
-            x=current;
-            ret=true;
+        if(IntersectBox(ray,scene.boxes[i],vec3(0.0,0.0,1.0),iTime, current)&&current.t<x.t){
+            x = current;
+            ret = true;
         }
+}
+
+void IntersectTore(Ray ray, out Hit x, out bool ret, out Hit current){
+    for(int i = 0; i < scene.nb_tores; i++)
+        if(IntersectTore(ray,scene.tores[i],vec3(-1.0,0.0,0.0), vec3(-2.,-2.,0.), iTime,current)&&current.t<x.t){
+        x=current;
+        ret=true;
+    }
 }
 
 void RotateScene(out Scene sc, vec3 rot, float angle){
     for(int i = 0; i < sc.nb_cylinders; i++)
-        sc.cylinders[i] = RotateCylinder(sc.cylinders[i], rot, angle);
+        RotateCylinder(sc.cylinders[i], rot, angle);
 
     for(int i = 0; i < sc.nb_capsules; i++)
-        sc.capsules[i] = RotateCapsule(sc.capsules[i], rot, angle);
-
-    for(int i = 0; i < sc.nb_ellipses; i++)
-        sc.ellipses[i] = RotateEllipse(sc.ellipses[i], rot, angle);
-
-    for(int i = 0; i < sc.nb_boxes; i++)
-        sc.boxes[i] = RotateBox(sc.boxes[i], rot, angle);
+        RotateCapsule(sc.capsules[i], rot, angle);
 }
 
 // Scene intersection
@@ -485,11 +669,8 @@ void RotateScene(out Scene sc, vec3 rot, float angle){
 //   x : Returned intersection information
 bool Intersect(Ray ray,out Hit x){
     // ROTATION
-    vec3 ROT = vec3(0.0,0.0,1.0);
-    float ANGLE = iTime;
-    // Cylinder cyl = RotationCylinder(scene.cylinders[0],ROT,ANGLE);
-    // Capsule cap = RotationCapsule(scene.capsules[0],ROT,ANGLE);
-    // ell = RotationEllipse(ell,ROT,ANGLE);
+    const vec3 ROT = vec3(0.0,0.0,1.0);
+    float angle = iTime;
     
     x=Hit(1000.,vec3(0),-1);
     Hit current;
@@ -501,6 +682,7 @@ bool Intersect(Ray ray,out Hit x){
     IntersectTruncatedCylinders(ray, x, ret, current);
     IntersectCapsules(ray, x, ret, current);
     IntersectBoxes(ray, x, ret, current);
+    IntersectTore(ray, x, ret, current);
     
     return ret;
 }
@@ -520,78 +702,59 @@ mat3 setCamera(in vec3 ro,in vec3 ta){
     return mat3(cu,cv,cw);
 }
 
-// Apply color model
-// m : Material
-// n : normal
-vec3 Color(Material m,vec3 n){
-    vec3 light=normalize(vec3(1,1,1));
- 
-    float diff=clamp(dot(n,light),0.,1.);
-    vec3 col=m.d*diff+vec3(.2,.2,.2);
-    return col;
+bool IsInShadow(vec3 p, vec3 lightPosition, Scene scene)
+{
+    vec3 lightDir = normalize(lightPosition - p);
+    Ray shadowRay = Ray(p, lightDir);
+    Hit x;
+    bool idx = Intersect(shadowRay, x);
+    return idx;
 }
 
-vec3 ColorUniform(Material m, vec3 n){
-    return m.d;
-}
+vec3 CalculatePhongLighting(vec3 point, Material material, vec3 normal, Scene sc) {
+    vec3 ambient = material.ambient; 
+    vec3 diffuse = material.diffuse;
+    vec3 specular = material.specular; 
 
+    vec3 totalLighting = vec3(0.0);
+    float epsilon = 0.5; // Ajouter un petit décalage
 
-vec3 ColorCheckers(Material mat, vec3 p, vec3 n){
-    // Size of a checker cell
-    float CHECKER_SIZE = 1.0;
+    for (int i = 0; i < sc.nb_lights; i++) {
+        // Calculate lighting components (diffuse and specular) for each light source
+        vec3 lightDir = normalize(sc.lightPositions[i] - point);
 
-    // calculating the value using Checkers
-    float checkerValue = Checkers(p.xy / CHECKER_SIZE);
+        // Ajouter epsilon au point pour corriger la précision numérique
+        vec3 pointWithEpsilon = point + epsilon * lightDir;
 
-    vec3 color1 = vec3(0.9, 0.9, 0.9);
-    vec3 color2 = vec3(0.3, 0.3, 0.3);
+        if(IsInShadow(pointWithEpsilon, sc.lightPositions[i], sc)) {
+            continue; // Ignorer la source lumineuse si elle est en ombre
+        }
 
-    // Choose the color using checkerValue
-    vec3 checkerColor = mix(color1, color2, checkerValue);
+        // Calcul de la distance entre le point et la source lumineuse
+        float distance = length(sc.lightPositions[i] - point);
 
-    // Add a lighting using the normal
-    vec3 light=normalize(vec3(1,1,1));
-    float diff=clamp(dot(n,light),0.,1.);
-    // apply the lighting
-    vec3 finalColor = checkerColor * (diff + 0.2);
+        // Calcul de l'atténuation en fonction de la distance (loi de l'inverse du carré)
+        float coeffLight = 0.25;
+        float attenuation = 1.0 / pow(distance,coeffLight);
 
-    return finalColor;
-}
+        float diff = max(dot(normal, lightDir), 0.0);
 
-vec3 HSVtoRGB(vec3 c){
-    vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
-    vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
-    return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
-}
+        // Appliquer l'atténuation à la composante diffuse
+        diff *= attenuation;
 
-vec3 ColorConcentric(vec3 p){
-   // Centre de la texture
-    const vec3 CENTER = vec3(0.0, 0.0, 0.);
+        // Calculate the reflect direction for the specular component
+        vec3 reflectDir = reflect(-lightDir, normal);
 
-    // Distance from the center
-    float distance = length(p - CENTER);
+        // Appliquer l'atténuation à la composante spéculaire
+        float specularAttenuation = attenuation; // Vous pouvez ajuster cela si nécessaire
 
-    // Variation with the distance
-    float hue = mod(distance, 1.0); 
-    vec3 color = HSVtoRGB(vec3(hue, 1.0, 1.0)); 
-    return color;
-}
+        // Combine ambient, diffuse, and specular for the current light source
+        vec3 lighting = ambient + diffuse * diff + specular * specularAttenuation;
 
-vec3 ColorRadial(vec3 p){
-    const vec3 AXIS = normalize(vec3(0.0, 0.0, 1.0));
-
-    // Distance from the axis
-    float distanceToAxis = length(cross(p, AXIS));
-
-    // Color variation
-    float hue = distanceToAxis / 2.0;
-
-    float sat = 1.0;
-    float lum = 1.0; 
-    
-    vec3 rgbColor = HSVtoRGB(vec3(hue, sat, lum));
-    
-    return rgbColor;
+        // Accumulate the lighting from all light sources
+        totalLighting += lighting;
+    }
+    return totalLighting;
 }
 
 // Rendering
@@ -604,35 +767,30 @@ vec3 Shade(Ray ray){
     {
         vec3 p=Point(ray,x.t);
         Material mat=Texture(p,x.i);
-        
-        switch(x.i)
-        { 
-            case 2: { return ColorCheckers(mat,p,x.n); }
-            case 3: { return ColorConcentric(p); }
-            case 4: { return ColorRadial(p); }
-            case 5: { return ColorUniform(mat,x.n); }
-            default: { return Color(mat,x.n); }
-        }
+    
+        // Calculate Phong lighting
+        vec3 lighting = CalculatePhongLighting(p, mat, x.n, scene);
+        return lighting;
     }
     else
-    {
         return Background(ray.d);
-    }
-    
     return vec3(0);
 }
 
 void initializeScene(out Scene sc){
-    addSphereToScene(sc, Sphere(vec3(0.,0.,1.),1.,3));
+    addSphereToScene(sc, Sphere(vec3(5.,-3.,1.5),1.,6));
     addSphereToScene(sc, Sphere(vec3(1.,2.,0.),1.,4));
-    addPlaneToScene(sc, Plane(vec3(0.,0.,1.),vec3(0.,0.,0.),2));
-    addEllipseToScene(sc, Ellipse(vec3(-5.,2.,3.0), vec3(2., 3., 1.), 2));
+    addPlaneToScene(sc, Plane(vec3(0.,0.,1.),vec3(0.,0.,-2.),0));
+    addEllipseToScene(sc, Ellipse(vec3(-5.,2.,3.0), vec3(2., 3., 1.), 8));
     addCylinderToScene(sc, Cylinder(vec3(4.,-2.,2), vec3(2.,-2.,2), vec3(1.,0.,0.), vec3(0.,1.,0.),3));
     addCylinderToScene(sc, Cylinder(vec3(4.,1.,4), vec3(4.,1.,2), vec3(0.,0.,1.), vec3(0.,1.,0.),5));
-    addCapsuleToScene(sc, Capsule(vec3(-1.,3.,1), vec3(-1.,5.,1), vec3(0.,1.,0.), 1.,4));
-    addBoxToScene(sc, Box(vec3(-4.,-4.,4.),vec3(-2.,-2.,2.), 1));
-}
+    addCapsuleToScene(sc, Capsule(vec3(-1.,3.,1), vec3(-1.,5.,1), vec3(0.,1.,0.), 1.,7));
+    addBoxToScene(sc, Box(vec3(-4.,-4.,4.),vec3(-2.,-2.,2.),9));
+    addToreToScene(sc, Tore(1., 0.5, 9));
 
+    //addLightToScene(sc, vec3(10.,0.,10.));
+    addLightToScene(sc, vec3(0.,5.,7.));
+}
 
 void mainImage(out vec4 fragColor,in vec2 fragCoord){
     // From uv which are the pixel coordinates in [0,1], change to [-1,1] and apply aspect ratio
@@ -653,7 +811,6 @@ void mainImage(out vec4 fragColor,in vec2 fragCoord){
     RotateScene(scene, vec3(0.0,0.0,1.0), iTime);
     
     // Render
-    vec3 col=Shade(Ray(ro,rd));
-    
-    fragColor=vec4(col,1.);
+    vec3 color=Shade(Ray(ro,rd));
+    fragColor = vec4(color, 1.0);
 }
