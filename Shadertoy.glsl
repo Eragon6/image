@@ -59,7 +59,30 @@ struct Material{
     vec3 diffuse;
     vec3 specular;
     vec3 ambient;
+    vec3 reflectionColor; // Couleur de réflexion
+    float reflectionStrength; // Force de réflexion (0.0 pour aucune réflexion, 1.0 pour une réflexion totale)
 };
+
+Material normalMaterial(vec3 diff, vec3 spec, vec3 amb){
+    Material mat;
+    mat.diffuse = diff;
+    mat.specular = spec;
+    mat.ambient = amb;
+    mat.reflectionColor = vec3(0.0);
+    mat.reflectionStrength = 0.0;
+    return mat;
+}
+
+Material reflectionMaterial(vec3 diff, vec3 spec, vec3 amb, vec3 reflColor, float reflStrength){
+    Material mat;
+    mat.diffuse = diff;
+    mat.specular = spec;
+    mat.ambient = amb;
+    mat.reflectionColor = reflColor;
+    mat.reflectionStrength = reflStrength;
+    return mat;
+}
+
 
 struct Scene{
     Sphere spheres[100];
@@ -251,7 +274,7 @@ Material CheckerboardTexture(vec3 point) {
         spec = vec3(0.2, 0.7, 0.8); 
     }
 
-    return Material(diff, spec, amb);
+    return normalMaterial(diff, spec, amb);
 }
 
 // Compute color
@@ -262,15 +285,16 @@ Material Texture(vec3 p,int i){
         case 0:{                                                        // CHECKBOARD
             return CheckerboardTexture(p);
         }
-        case 1: return Material(vec3(.4,.0,.4),vec3(.2),vec3(.1));      // NORMAL VIOLET
-        case 3: return Material(ColorConcentric(p),vec3(.0),vec3(.0));  // CONCENTRIC
-        case 4: return Material(ColorRadial(p),vec3(.2),vec3(.1));      // RADIAL
-        case 5: return Material(vec3(.8,.8,.8),vec3(.0),vec3(.0));      // UNIFORM
-        case 6: return Material(vec3(.47,.15,.11),vec3(.1),vec3(.0));   // EARTH
-        case 7: return Material(vec3(.2,.5,.3),vec3(.0),vec3(.0));      // UNIFORM GREEN
-        case 8: return Material(vec3(.2,.2,.7),vec3(.0),vec3(.0));      // UNIFORM BLUE
-        case 9: return Material(vec3(.8,.6,.2),vec3(.0),vec3(.0));      // UNIFORM ORANGE
-        default: return Material(vec3(0),vec3(0),vec3(0));
+        case 1: return normalMaterial(vec3(.4,.0,.4),vec3(.2),vec3(.1));      // NORMAL VIOLET
+        case 3: return normalMaterial(ColorConcentric(p),vec3(.0),vec3(.0));  // CONCENTRIC
+        case 4: return normalMaterial(ColorRadial(p),vec3(.2),vec3(.1));      // RADIAL
+        case 5: return normalMaterial(vec3(.8,.8,.8),vec3(.0),vec3(.0));      // UNIFORM
+        case 6: return normalMaterial(vec3(.47,.15,.11),vec3(.1),vec3(.0));   // EARTH
+        case 7: return normalMaterial(vec3(.2,.5,.3),vec3(.0),vec3(.0));      // UNIFORM GREEN
+        case 8: return normalMaterial(vec3(.2,.2,.7),vec3(.0),vec3(.0));      // UNIFORM BLUE
+        case 9: return normalMaterial(vec3(.8,.6,.2),vec3(.0),vec3(.0));      // UNIFORM ORANGE
+        case 10: return reflectionMaterial(vec3(.8,.8,.8),vec3(.0),vec3(.0),vec3(.8,.8,.8),1.0); // REFLECTION
+        default: return normalMaterial(vec3(0),vec3(0),vec3(0));
     }
 }
 
@@ -757,6 +781,38 @@ vec3 CalculatePhongLighting(vec3 point, Material material, vec3 normal, Scene sc
     return totalLighting;
 }
 
+vec3 CalculateReflection(vec3 incidentDir, vec3 normal, vec3 intersectionPoint, Hit intersectionInfo, Scene scene, int maxDepth) {
+    if (maxDepth <= 0) {
+        return vec3(0.0); // Arrêtez les réflexions après un certain nombre d'itérations
+    }
+
+    // Calculer la direction réfléchie
+    vec3 reflectedDir = reflect(incidentDir, normal);
+
+    // Créer un rayon réfléchi à partir du point d'intersection
+    Ray reflectedRay;
+    reflectedRay.o = intersectionPoint;
+    reflectedRay.d = reflectedDir;
+
+    // Recherche d'intersection avec les objets environnants
+    Hit reflectionHit;
+    bool hasReflectionIntersection = Intersect(reflectedRay, reflectionHit);
+
+    // S'il y a une intersection, calculez la couleur de la réflexion récursivement
+    if (hasReflectionIntersection) {
+        Material reflectionMaterial = Texture(intersectionPoint, reflectionHit.i);
+        // Calculez l'éclairage pour le matériau réfléchissant (vous pouvez utiliser CalculatePhongLighting ou autre)
+        vec3 reflectionLighting = CalculatePhongLighting(intersectionPoint, reflectionMaterial, reflectionHit.n, scene);
+
+        // Récursivement calculez la couleur de la réflexion
+        vec3 reflectionColor = reflectionLighting /** CalculateReflection(reflectedDir, reflectionHit.n, intersectionPoint, reflectionHit, scene, maxDepth - 1)*/;
+
+        return reflectionColor;
+    } else {
+        return vec3(0.0); // Pas d'intersection, couleur de fond
+    }
+}
+
 // Rendering
 vec3 Shade(Ray ray){
     // Intersect contains all the geo detection
@@ -770,6 +826,13 @@ vec3 Shade(Ray ray){
     
         // Calculate Phong lighting
         vec3 lighting = CalculatePhongLighting(p, mat, x.n, scene);
+
+        // For reflectionMaterial
+        if (mat.reflectionStrength > 0.0) {
+            vec3 reflectionColor = CalculateReflection(ray.d, x.n, p, x, scene, 1);
+            lighting = mix(lighting, reflectionColor, mat.reflectionStrength);
+        }
+
         return lighting;
     }
     else
@@ -779,7 +842,7 @@ vec3 Shade(Ray ray){
 
 void initializeScene(out Scene sc){
     addSphereToScene(sc, Sphere(vec3(5.,-3.,1.5),1.,6));
-    addSphereToScene(sc, Sphere(vec3(1.,2.,0.),1.,4));
+    addSphereToScene(sc, Sphere(vec3(0.,0.,4.),1.,10));
     addPlaneToScene(sc, Plane(vec3(0.,0.,1.),vec3(0.,0.,-2.),0));
     addEllipseToScene(sc, Ellipse(vec3(-5.,2.,3.0), vec3(2., 3., 1.), 8));
     addCylinderToScene(sc, Cylinder(vec3(4.,-2.,2), vec3(2.,-2.,2), vec3(1.,0.,0.), vec3(0.,1.,0.),3));
